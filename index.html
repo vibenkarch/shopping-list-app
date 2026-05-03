@@ -155,27 +155,32 @@
     <ul id="list"></ul>
   </div>
 
-<script>
-  const STORAGE_KEY = "shopping-list-items";
+<script type="module">
+  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+  const SUPABASE_URL = "https://ecfmkpqgcqoafwrlvzij.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_Yjbf01UHUhk1frND2LQFhQ_sS2aLscH";
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   const input = document.getElementById("item-input");
   const addBtn = document.getElementById("add-btn");
   const list = document.getElementById("list");
   const statsText = document.getElementById("stats-text");
   const clearDoneBtn = document.getElementById("clear-done-btn");
 
-  let items = loadItems();
+  let items = [];
 
-  function loadItems() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+  async function loadItems() {
+    const { data, error } = await supabase
+      .from("shopping_items")
+      .select("id, text, done, created_at")
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error("항목 불러오기 실패:", error);
+      items = [];
+      return;
     }
-  }
-
-  function saveItems() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    items = data ?? [];
   }
 
   function render() {
@@ -216,34 +221,67 @@
     clearDoneBtn.disabled = doneCount === 0;
   }
 
-  function addItem() {
+  async function addItem() {
     const text = input.value.trim();
     if (!text) return;
-    items.push({ id: Date.now() + Math.random(), text, done: false });
+    addBtn.disabled = true;
+    const { data, error } = await supabase
+      .from("shopping_items")
+      .insert({ text, done: false })
+      .select()
+      .single();
+    addBtn.disabled = false;
+    if (error) {
+      console.error("항목 추가 실패:", error);
+      return;
+    }
+    items.push(data);
     input.value = "";
-    saveItems();
     render();
     input.focus();
   }
 
-  function toggleItem(id) {
+  async function toggleItem(id) {
     const item = items.find(i => i.id === id);
-    if (item) {
-      item.done = !item.done;
-      saveItems();
-      render();
+    if (!item) return;
+    const next = !item.done;
+    const { error } = await supabase
+      .from("shopping_items")
+      .update({ done: next })
+      .eq("id", id);
+    if (error) {
+      console.error("항목 업데이트 실패:", error);
+      return;
     }
-  }
-
-  function deleteItem(id) {
-    items = items.filter(i => i.id !== id);
-    saveItems();
+    item.done = next;
     render();
   }
 
-  function clearDone() {
+  async function deleteItem(id) {
+    const { error } = await supabase
+      .from("shopping_items")
+      .delete()
+      .eq("id", id);
+    if (error) {
+      console.error("항목 삭제 실패:", error);
+      return;
+    }
+    items = items.filter(i => i.id !== id);
+    render();
+  }
+
+  async function clearDone() {
+    const doneIds = items.filter(i => i.done).map(i => i.id);
+    if (doneIds.length === 0) return;
+    const { error } = await supabase
+      .from("shopping_items")
+      .delete()
+      .in("id", doneIds);
+    if (error) {
+      console.error("완료 항목 삭제 실패:", error);
+      return;
+    }
     items = items.filter(i => !i.done);
-    saveItems();
     render();
   }
 
@@ -253,6 +291,7 @@
   });
   clearDoneBtn.addEventListener("click", clearDone);
 
+  await loadItems();
   render();
   input.focus();
 </script>
